@@ -1,0 +1,263 @@
+
+
+%%%%%%%%% deconvolution project %%%
+
+
+
+%%
+%{
+linear problem can be write :
+
+s(t) = w(t)*e(t)+n(t)
+we would like to find e(t) knowing s(t) and w(t)
+in frequency domain we can write the reflectivity as :
+
+E(w) = conj(W(w)).S(w)/conj(W(w)).W(w)+ eps
+%}
+clear all
+close all
+clc
+
+
+T = 3;                   % Time duration in second
+dt = 10^-2;               % time step
+N = T/dt;                 % nomber of sample
+t = (0:dt:T)';              % time vector
+fe = 1/dt;                 % sampling frequency
+f0 = fe*1/20;                % fondamental frequency
+f = (0:fe/N:fe);             % frequency vector
+t0 = 0.2;
+
+
+w = zeros(1,length(t))'; % source function vector
+for ii = 1:length(t)
+    w(ii) = (1-2*((pi^2)*(f0^2))...
+        *(t(ii)-t0)^2)*exp(-1*((pi^2)*(f0^2)*(t(ii)-t0)^2))';
+end
+
+figure(1);
+plot(t,w,'b');
+%xlim([0 0.0002])
+%title('Signal source w de type Ricker')
+xlabel('Temps(s)')
+ylabel('Amplitude')
+figure(2);
+plot(f,abs(fft(w)));
+
+title('FT of w')
+% reflectivity
+e = zeros(1,length(t))';
+%e(1) = 1;
+e(44) = 1;
+%e(88) = 1;
+%e(132) = -1;
+
+%e(176) = 1;
+%e(220) = 1;
+%e(264) = -1;
+
+
+figure(3);
+FTe = fft(e);
+plot(f,abs(FTe));
+title('FFT of reflectivity')
+
+figure(4);
+plot(t,e,'b')
+xlabel('Temps(s)')
+ylabel('Amplitude')
+%title('reflectivity')
+
+% signal, Direct problem
+noise = 10^-4; %[0 10^-8 10^-7 10^-6 10^-5 10^-4 10^-3 10^-2 10^-1];
+%s = conv(w,e,'same');
+%for ni = 1:length(noise)
+S = fft(w).*FTe;
+s = ifft(S);
+n =  randn(size(s))* noise;
+s = s + n;
+S = fft(s);
+figure(5);
+plot(t,s,'r')
+xlabel('Temps(s)')
+ylabel('Amplitude')
+%title('signal')
+
+figure(6);
+plot(f,abs(S));
+%title('FT of the signal')
+
+%{
+
+%%% inverse L2 %%%%
+%%
+
+W = fft(w); %FT of the source function
+S = fft(s); % FT of the signal
+
+eps = linspace(10^-6,10^-2);
+
+for ie = 1:length(eps)
+E = (conj(W).*S)./(conj(W).*W) + ((max(conj(W).*W)*eps(ie))) ;
+figure(7);
+%plot(f,abs(FTe),'b')
+hold on
+plot (f,abs((E)),'g');
+%xlim([0 50])
+title('deconvolution spectrum : E(w)')
+
+figure(8);
+
+plot(t,real(ifft(E)),'r')
+%title('IFFT of E(w)')
+xlabel('Temps(s)')
+ylabel('Amplitude')
+ylim([-1 1])
+
+IFFTE = real(ifft(E));
+
+%dif_Amp(ie) = IFFTE(100) - e(100);
+dif_norm_r(ie) =norm( (real(ifft(E))) - (e));
+
+end
+diff_norm_br(ni,:) = dif_norm_r;
+end
+figure(9);
+xlabel('Terme de régularisation')
+ylabel('Norme (e vraie - e de la déconvolution)')
+ 
+for ii = 1:9
+    
+    semilogx(eps,diff_norm_br(ii,:))
+    
+    hold on
+    legend
+end
+%legend('bruit=0',' bruit=10^-8',' bruit=10^-7', 'bruit=10^-6', 'bruit=10^-5', 'bruit=10^-4', 'bruit=10^-3', 'bruit=10^-2', 'bruit=10^-1')
+%}
+
+%{
+figure(9);
+loglog(eps,dif_Amp)
+%ylim([0 0.2])
+xlabel('stability factor')
+ylabel('Amp of deconvolved delta -  Amp of true delta')
+title('Amp function of stability factor')
+
+f9 = ['Amp result function of stability factor.fig'];
+%saveas(figure(9),f9)
+%}
+
+
+%% L1 NORM %%
+%%
+%
+
+% f(e) = || s(t) - w(t)*e(t) ||^2 + T||e(t)||
+
+% Toeplitz matrix bulding
+q = zeros(1,length(s))';
+q(1) = w(1);
+Q = toeplitz(q,w);
+
+
+fb = Q'*e;
+
+fb = fb + n;
+figure(9);
+plot(t,fb)
+
+a = zeros(length(fb),1);
+af = zeros(length(fb),1);
+
+b = Q*fb;
+
+
+
+% Paramters
+ft = 10^-5;
+T =  [10^-6 10^-5 10^-4 10^-3 10^-2 10^-1 1];
+gam = (2/norm(Q*Q'))*0.8;
+
+% soft thresholding
+for ti = 1:length(T)
+for l1 = 1:1*10^9
+ 
+    A = a + gam*(b-(Q*Q')*a); % nouveau signal par calcul du gradient 
+    Ampl(l1,1) = A(44);
+    for i = 1:length(a)
+        x = 1-((gam*T(ti))/abs(A(i))); %étape du soft thresholding
+        
+        af(i) = A(i)* max(x,0);
+    end
+    Ampl(l1,2) = af(44);
+    verif = norm(a-af)
+    if norm(a-af)<ft
+        break
+    end
+    a = af;
+    continue
+end
+figure(10)
+plot(t,af)
+xlabel('Temps(s)')
+ylabel('Amplitude')
+ylim([-1 1])
+fprintf(' number of iteration : %d\n', l1);
+
+diff = norm(af) - norm(e);
+
+
+
+
+norme_diff(ti) = norm(diff);
+
+
+end
+figure(11);
+loglog(T,norme_diff)
+
+%L1 = norm(fb,1);
+%L2 = norm(fb,2);
+
+%}
+
+%% Debias%%
+
+%
+iter = 1;
+AF = zeros(length(af),1);
+for id =1:10^9 
+    fb1 = Q'*af; % convolve L1 result with wavelet
+    
+    r_fb = fb1-fb; % residual between berween signal signal from L1 and initial signal
+    
+    fb2 = Q*r_fb; % convolve residual with the conjugate of wavelet
+    
+    AF = af - gam*fb2;
+    
+    for idd = 1:length(AF)
+        
+        if abs(af(idd)) < 10^-1
+            AF(idd) =0;
+        
+        end
+    end
+    if norm(af-AF)<10^-10
+        break
+    end
+    af = AF;
+    iter = iter +1
+end
+figure(12);
+plot(t, AF)
+ylim([-1 1])
+%}
+%%
+figure(13)
+absic = (1:10);
+plot(absic,Ampl((1:10),1),'r-')
+hold on
+plot(absic,Ampl((1:10),2),'b-')
+
+
